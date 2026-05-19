@@ -2,20 +2,25 @@ import { useState, useEffect, useCallback } from "react";
 
 const START_DATE = new Date("2026-05-19");
 const TOTAL_DAYS = 75;
-const LS_KEY = "75ss_progress_v1";
+const LS_KEY = "75ss_v3";
 
-const RULES = [
-  { id: "workout",     label: "Workout",        icon: " ", note: "1x/day (skip Mondays)",                weekly: false, skipMonday: true },
-  { id: "vitamins",    label: "Daily Vitamins",  icon: " ", note: "Every day",                            weekly: false },
-  { id: "tea",         label: "1 Tea",           icon: " ", note: "At least 1 cup",                      weekly: false },
-  { id: "read",        label: "Read 10 Pages",   icon: " ", note: "10 pages minimum",                    weekly: false },
-  { id: "waist",       label: "Waist Train",     icon: " ", note: "5x/week minimum",                     weekly: false },
-  { id: "wake",        label: "Up by 12pm",      icon: " ", note: "No sleeping in past noon",            weekly: false },
-  { id: "diet",        label: "Clean Diet",      icon: " ", note: "No refined carbs or processed sugar", weekly: false },
-  { id: "water",       label: "Drink Water",     icon: " ", note: "80–100 oz daily",                     weekly: false },
-  { id: "sweet",       label: "Sweet Treat",     icon: " ", note: "1 allowed this week",                 weekly: true, limit: 1 },
-  { id: "carb",        label: "Carb of Choice",  icon: " ", note: "1 allowed this week (bread, rice…)",  weekly: true, limit: 1 },
-  { id: "skipworkout", label: "Skip a Workout",  icon: " ", note: "1 rest pass this week (non-Monday)", weekly: true, limit: 1 },
+// Daily rules — checked per day
+const DAILY_RULES = [
+  { id: "workout",  label: "Workout",       icon: " ", note: "1x/day (skip Mondays)", skipMonday: true },
+  { id: "vitamins", label: "Daily Vitamins", icon: " ", note: "Every day" },
+  { id: "tea",      label: "1 Tea",          icon: " ", note: "At least 1 cup" },
+  { id: "read",     label: "Read 10 Pages",  icon: " ", note: "10 pages minimum" },
+  { id: "waist",    label: "Waist Train",    icon: " ", note: "5x/week minimum" },
+  { id: "wake",     label: "Up by 12pm",     icon: " ", note: "No sleeping in past noon" },
+  { id: "diet",     label: "Clean Diet",     icon: " ", note: "No refined carbs or processed sugar" },
+  { id: "water",    label: "Drink Water",    icon: " ", note: "80–100 oz daily" },
+];
+
+// Weekly allowances — 1 use per week, blocks until next week
+const WEEKLY_RULES = [
+  { id: "sweet",       label: "Sweet Treat",    icon: " ", note: "1 treat allowed this week" },
+  { id: "carb",        label: "Carb of Choice", icon: " ", note: "1 carb allowed this week (bread, rice…)" },
+  { id: "skipworkout", label: "Skip a Workout", icon: " ", note: "1 workout skip allowed this week" },
 ];
 
 const pink       = "#ff3fa4";
@@ -30,6 +35,7 @@ const textMuted  = "#c9a0c0";
 function getDateKey(d)    { return d.toISOString().split("T")[0]; }
 function getDayNumber(d)  { return Math.floor((d - START_DATE) / 86400000) + 1; }
 function getWeekNumber(d) { return Math.floor(Math.floor((d - START_DATE) / 86400000) / 7) + 1; }
+function weekKey(wn)      { return `week-${wn}`; }
 function isMonday(d)      { return d.getDay() === 1; }
 function getWeekDates(wn) {
   return Array.from({ length: 7 }, (_, i) => {
@@ -39,13 +45,19 @@ function getWeekDates(wn) {
   });
 }
 
+// Data shape:
+//   stored.days["2026-05-19"]["workout"] = true   ← daily checks per date
+//   stored.weeks["week-1"]["sweet"]      = true   ← allowance used this week (whole week blocked)
 function loadData() {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch { return {}; }
+    if (!raw) return { days: {}, weeks: {} };
+    const parsed = JSON.parse(raw);
+    // migrate old flat format if needed
+    if (!parsed.days && !parsed.weeks) return { days: parsed, weeks: {} };
+    return { days: parsed.days || {}, weeks: parsed.weeks || {} };
+  } catch { return { days: {}, weeks: {} }; }
 }
-
 function saveData(d) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(d)); return true; }
   catch { return false; }
@@ -57,51 +69,62 @@ export default function App() {
   const dayNum      = getDayNumber(today);
   const isActive    = dayNum >= 1 && dayNum <= TOTAL_DAYS;
   const currentWeek = isActive ? getWeekNumber(today) : 1;
+  const currentWK   = weekKey(currentWeek);
 
   const [data,         setData]         = useState(() => loadData());
   const [saveStatus,   setSaveStatus]   = useState("saved");
   const [view,         setView]         = useState("today");
   const [selectedWeek, setSelectedWeek] = useState(currentWeek);
 
-  // Auto-refresh at midnight
+  // Auto-refresh at midnight so today's checklist resets
   useEffect(() => {
     const now = new Date();
     const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-    const ms = midnight - now;
-    const t = setTimeout(() => window.location.reload(), ms);
+    const t = setTimeout(() => window.location.reload(), midnight - now);
     return () => clearTimeout(t);
   }, []);
 
-  const getChecked    = (dk, id) => !!data[dk]?.[id];
-  const getWeekChecks = (wn, id) => getWeekDates(wn).filter(d => getChecked(getDateKey(d), id)).length;
-  const getDayScore   = (date) => {
+  // ── Getters ──
+  const isDayChecked    = (dk, id) => !!data.days[dk]?.[id];
+  const isWeekUsed      = (wn, id) => !!data.weeks[weekKey(wn)]?.[id];
+
+  const getDayScore = (date) => {
     const key = getDateKey(date), mon = isMonday(date);
-    const applicable = RULES.filter(r => !r.weekly && !(r.skipMonday && mon));
-    return { checked: applicable.filter(r => getChecked(key, r.id)).length, total: applicable.length };
+    const applicable = DAILY_RULES.filter(r => !(r.skipMonday && mon));
+    return { checked: applicable.filter(r => isDayChecked(key, r.id)).length, total: applicable.length };
   };
 
-  const toggle = useCallback((dk, id) => {
+  // ── Toggle daily rule ──
+  const toggleDay = useCallback((dk, id) => {
     setData(prev => {
       const updated = {
         ...prev,
-        [dk]: { ...(prev[dk] || {}), [id]: !(prev[dk]?.[id]) }
+        days: { ...prev.days, [dk]: { ...(prev.days[dk] || {}), [id]: !(prev.days[dk]?.[id]) } }
       };
-      const ok = saveData(updated);
-      setSaveStatus(ok ? "saved" : "error");
+      setSaveStatus(saveData(updated) ? "saved" : "error");
       return updated;
     });
   }, []);
 
-  const todayMon    = isMonday(today);
-  const weeklyRules = RULES.filter(r => r.weekly);
-  const dailyRules  = RULES.filter(r => !r.weekly);
-  const elapsed     = Math.max(0, Math.min(dayNum - 1, TOTAL_DAYS));
-  const pct         = Math.round((elapsed / TOTAL_DAYS) * 100);
+  // ── Toggle weekly allowance ──
+  // Only allowed if NOT yet used this week. Tapping again un-uses it.
+  const toggleWeek = useCallback((wk, id) => {
+    setData(prev => {
+      const updated = {
+        ...prev,
+        weeks: { ...prev.weeks, [wk]: { ...(prev.weeks[wk] || {}), [id]: !(prev.weeks[wk]?.[id]) } }
+      };
+      setSaveStatus(saveData(updated) ? "saved" : "error");
+      return updated;
+    });
+  }, []);
 
-  const saveLabel =
-    saveStatus === "error" ? " Not saved" : " Auto-saved";
-  const saveLabelColor =
-    saveStatus === "error" ? "#ffb3b3" : "rgba(255,255,255,0.85)";
+  const todayMon = isMonday(today);
+  const elapsed  = Math.max(0, Math.min(dayNum - 1, TOTAL_DAYS));
+  const pct      = Math.round((elapsed / TOTAL_DAYS) * 100);
+
+  const saveLabelColor = saveStatus === "error" ? "#ffb3b3" : "rgba(255,255,255,0.85)";
+  const saveLabel      = saveStatus === "error" ? " Not saved" : " Auto-saved";
 
   return (
     <div style={{ minHeight: "100vh", background: "#fdf4ff", backgroundImage: "radial-gradient(ellipse at 15% 0%,#fce4f8 0%,transparent 55%),radial-gradient(ellipse at 85% 5%,#ede9fe 0%,transparent 50%)", fontFamily: "'Georgia',serif", color: textMain }}>
@@ -109,15 +132,12 @@ export default function App() {
       {/* ── HEADER ── */}
       <div style={{ background: "linear-gradient(120deg,#ff3fa4 0%,#a855f7 55%,#38bdf8 100%)", padding: "26px 24px 18px", position: "sticky", top: 0, zIndex: 10, boxShadow: "0 4px 30px rgba(255,63,164,0.3)" }}>
         <div style={{ maxWidth: 480, margin: "0 auto" }}>
-
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
               <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "0.07em", color: "#fff", margin: 0, textTransform: "uppercase", textShadow: "0 2px 10px rgba(0,0,0,0.15)" }}> 75 Semi Soft</h1>
               {isActive && <span style={{ fontSize: 12, color: "rgba(255,255,255,0.78)" }}>Day {dayNum} of {TOTAL_DAYS}</span>}
             </div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: saveLabelColor, letterSpacing: "0.02em" }}>
-              {saveLabel}
-            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: saveLabelColor }}>{saveLabel}</div>
           </div>
 
           <div style={{ marginTop: 10 }}>
@@ -153,23 +173,41 @@ export default function App() {
               </div>}
             </div>
 
+            {/* Daily rules */}
             <div style={{ marginBottom: 22 }}>
               <SectionLabel>Daily Rules</SectionLabel>
-              {dailyRules.map(rule => {
+              {DAILY_RULES.map(rule => {
                 const skip = rule.skipMonday && todayMon;
-                return <CheckRow key={rule.id} rule={rule} checked={getChecked(todayKey, rule.id)} skipped={skip} onToggle={() => !skip && toggle(todayKey, rule.id)} />;
+                return (
+                  <CheckRow
+                    key={rule.id}
+                    rule={rule}
+                    checked={isDayChecked(todayKey, rule.id)}
+                    skipped={skip}
+                    onToggle={() => !skip && toggleDay(todayKey, rule.id)}
+                  />
+                );
               })}
             </div>
 
-            <div>
-              <SectionLabel>Weekly Allowances — Week {currentWeek}</SectionLabel>
-              {weeklyRules.map(rule => {
-                const used = getWeekChecks(currentWeek, rule.id);
-                const atLimit = used >= rule.limit;
-                return <CheckRow key={rule.id} rule={rule} checked={getChecked(todayKey, rule.id)} disabled={!getChecked(todayKey, rule.id) && atLimit} onToggle={() => toggle(todayKey, rule.id)} badge={`${used}/${rule.limit} used`} badgeAlert={atLimit} />;
-              })}
+            {/* Weekly allowances */}
+            <SectionLabel>Weekly Allowances — Week {currentWeek}</SectionLabel>
+            <div style={{ marginBottom: 8, padding: "10px 14px", background: "#fff0f8", border: `1px solid ${cardBorder}`, borderRadius: 12, fontSize: 12, color: textSub }}>
+               Each allowance resets every new week. Once used, it's locked until then.
             </div>
+            {WEEKLY_RULES.map(rule => {
+              const used = isWeekUsed(currentWeek, rule.id);
+              return (
+                <AllowanceRow
+                  key={rule.id}
+                  rule={rule}
+                  used={used}
+                  onToggle={() => toggleWeek(currentWK, rule.id)}
+                />
+              );
+            })}
 
+            {/* Score */}
             {isActive && (() => {
               const { checked, total } = getDayScore(today);
               const done = checked === total;
@@ -177,7 +215,7 @@ export default function App() {
                 <div style={{ marginTop: 26, padding: "22px 20px", background: done ? "linear-gradient(135deg,#ff3fa4,#a855f7)" : "linear-gradient(135deg,#fdf4ff,#fff0f8)", borderRadius: 20, textAlign: "center", boxShadow: done ? "0 8px 32px rgba(255,63,164,0.4)" : "0 2px 12px rgba(200,100,160,0.1)", border: done ? "none" : `1px solid ${cardBorder}` }}>
                   <div style={{ fontSize: 38, fontWeight: 700, color: done ? "#fff" : pink }}>{checked}/{total}</div>
                   <div style={{ fontSize: 13, color: done ? "rgba(255,255,255,0.92)" : textSub, marginTop: 4, letterSpacing: "0.05em" }}>
-                    {done ? "You're THAT girl today! " : "tasks completed today"}
+                    {done ? "You're THAT girl today! " : "daily tasks completed"}
                   </div>
                 </div>
               );
@@ -199,6 +237,7 @@ export default function App() {
               <button onClick={() => setSelectedWeek(w => Math.min(11,w+1))} style={navBtnStyle}>Next →</button>
             </div>
 
+            {/* 7-day grid */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 6, marginBottom: 24 }}>
               {getWeekDates(selectedWeek).map(date => {
                 const key = getDateKey(date);
@@ -223,18 +262,20 @@ export default function App() {
               })}
             </div>
 
-            <SectionLabel>Allowances This Week</SectionLabel>
-            {weeklyRules.map(rule => {
-              const used = getWeekChecks(selectedWeek, rule.id);
+            {/* Weekly allowances status for selected week */}
+            <SectionLabel>Allowances — Week {selectedWeek}</SectionLabel>
+            {WEEKLY_RULES.map(rule => {
+              const used = isWeekUsed(selectedWeek, rule.id);
+              const isCurrentWeek = selectedWeek === currentWeek;
               return (
-                <div key={rule.id} style={{ display: "flex", alignItems: "center", padding: "14px 16px", marginBottom: 8, background: "#fff", border: `1px solid ${cardBorder}`, borderRadius: 14, gap: 12, boxShadow: "0 2px 8px rgba(200,100,160,0.07)" }}>
+                <div key={rule.id} style={{ display: "flex", alignItems: "center", padding: "14px 16px", marginBottom: 8, background: used ? "linear-gradient(135deg,#fff0f8,#f3e8ff)" : "#fff", border: `1.5px solid ${used ? "#f9a8d4" : cardBorder}`, borderRadius: 14, gap: 12, boxShadow: used ? "0 4px 16px rgba(255,63,164,0.1)" : "0 2px 8px rgba(200,100,160,0.06)" }}>
                   <span style={{ fontSize: 22 }}>{rule.icon}</span>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, color: textMain, fontWeight: 600 }}>{rule.label}</div>
-                    <div style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>Limit: {rule.limit}/week</div>
+                    <div style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>{rule.note}</div>
                   </div>
-                  <div style={{ padding: "4px 14px", borderRadius: 20, fontSize: 13, fontWeight: 700, background: used >= rule.limit ? "#fff0f0" : "#f0fff8", color: used >= rule.limit ? "#e84a4a" : "#22c55e", border: `1px solid ${used >= rule.limit ? "#fca5a5" : "#86efac"}` }}>
-                    {used}/{rule.limit}
+                  <div style={{ padding: "5px 14px", borderRadius: 20, fontSize: 12, fontWeight: 700, background: used ? "linear-gradient(135deg,#ff3fa4,#a855f7)" : "#f0fff8", color: used ? "#fff" : "#22c55e", border: used ? "none" : "1px solid #86efac" }}>
+                    {used ? "Used ✓" : "Available"}
                   </div>
                 </div>
               );
@@ -263,26 +304,26 @@ export default function App() {
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 28 }}>
               {[
-                { label: "Perfect Days", value: Array.from({length: Math.max(0,dayNum-1)},(_,i)=>i).filter(i=>{ const d=new Date(START_DATE); d.setDate(START_DATE.getDate()+i); const {checked,total}=getDayScore(d); return checked===total&&total>0; }).length, color: pink },
+                { label: "Perfect Days", value: Array.from({length:Math.max(0,dayNum-1)},(_,i)=>i).filter(i=>{ const d=new Date(START_DATE); d.setDate(START_DATE.getDate()+i); const {checked,total}=getDayScore(d); return checked===total&&total>0; }).length, color: pink },
                 { label: "Days Done",    value: Math.max(0,Math.min(dayNum-1,TOTAL_DAYS)), color: lavender },
                 { label: "Days Left",   value: Math.max(0,TOTAL_DAYS-Math.max(0,dayNum-1)), color: sky },
               ].map(stat => (
-                <div key={stat.label} style={{ flex: 1, minWidth: 80, padding: "16px 10px", background: "#fff", border: `1px solid ${cardBorder}`, borderRadius: 16, textAlign: "center", boxShadow: "0 2px 10px rgba(200,100,160,0.1)" }}>
-                  <div style={{ fontSize: 30, color: stat.color, fontWeight: 700 }}>{stat.value}</div>
-                  <div style={{ fontSize: 10, color: textMuted, letterSpacing: "0.07em", textTransform: "uppercase", marginTop: 4 }}>{stat.label}</div>
+                <div key={stat.label} style={{ flex:1, minWidth:80, padding:"16px 10px", background:"#fff", border:`1px solid ${cardBorder}`, borderRadius:16, textAlign:"center", boxShadow:"0 2px 10px rgba(200,100,160,0.1)" }}>
+                  <div style={{ fontSize:30, color:stat.color, fontWeight:700 }}>{stat.value}</div>
+                  <div style={{ fontSize:10, color:textMuted, letterSpacing:"0.07em", textTransform:"uppercase", marginTop:4 }}>{stat.label}</div>
                 </div>
               ))}
             </div>
 
             <SectionLabel>The Rules </SectionLabel>
-            {RULES.map(rule => (
-              <div key={rule.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 16px", marginBottom: 8, background: "#fff", border: `1px solid ${cardBorder}`, borderRadius: 14, boxShadow: "0 2px 8px rgba(200,100,160,0.06)" }}>
-                <span style={{ fontSize: 20, marginTop: 1 }}>{rule.icon}</span>
+            {[...DAILY_RULES, ...WEEKLY_RULES].map((rule, i) => (
+              <div key={rule.id} style={{ display:"flex", alignItems:"flex-start", gap:12, padding:"12px 16px", marginBottom:8, background:"#fff", border:`1px solid ${cardBorder}`, borderRadius:14, boxShadow:"0 2px 8px rgba(200,100,160,0.06)" }}>
+                <span style={{ fontSize:20, marginTop:1 }}>{rule.icon}</span>
                 <div>
-                  <div style={{ fontSize: 14, color: textMain, fontWeight: 600 }}>{rule.label}</div>
-                  <div style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>{rule.note}</div>
+                  <div style={{ fontSize:14, color:textMain, fontWeight:600 }}>{rule.label}</div>
+                  <div style={{ fontSize:11, color:textMuted, marginTop:2 }}>{rule.note}</div>
                 </div>
-                {rule.weekly && <span style={{ marginLeft: "auto", fontSize: 10, color: pink, background: "#fff0f8", border: `1px solid ${cardBorder}`, padding: "2px 10px", borderRadius: 10, whiteSpace: "nowrap", fontWeight: 600 }}>Weekly</span>}
+                {i >= DAILY_RULES.length && <span style={{ marginLeft:"auto", fontSize:10, color:pink, background:"#fff0f8", border:`1px solid ${cardBorder}`, padding:"2px 10px", borderRadius:10, whiteSpace:"nowrap", fontWeight:600 }}>Weekly</span>}
               </div>
             ))}
           </div>
@@ -293,25 +334,46 @@ export default function App() {
 }
 
 function SectionLabel({ children }) {
-  return <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#c084fc", marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid #fce7f3", fontWeight: 700 }}>{children}</div>;
+  return <div style={{ fontSize:10, letterSpacing:"0.12em", textTransform:"uppercase", color:"#c084fc", marginBottom:10, paddingBottom:8, borderBottom:"1px solid #fce7f3", fontWeight:700 }}>{children}</div>;
 }
 
-function CheckRow({ rule, checked, skipped, disabled, onToggle, badge, badgeAlert }) {
+// Daily rule row
+function CheckRow({ rule, checked, skipped, onToggle }) {
   return (
-    <div onClick={!skipped && !disabled ? onToggle : undefined} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", marginBottom: 8, background: checked ? "linear-gradient(135deg,#fff0f8,#f3e8ff)" : skipped ? "#fafafa" : "#fff", border: `1.5px solid ${checked ? "#f9a8d4" : "#fce7f3"}`, borderRadius: 14, cursor: skipped||disabled ? "default" : "pointer", opacity: skipped ? 0.45 : disabled ? 0.5 : 1, transition: "all 0.15s", userSelect: "none", boxShadow: checked ? "0 4px 16px rgba(255,63,164,0.13)" : "0 1px 4px rgba(200,100,160,0.06)" }}>
-      <div style={{ width: 24, height: 24, borderRadius: 8, flexShrink: 0, border: `2px solid ${checked ? pink : "#f9a8d4"}`, background: checked ? "linear-gradient(135deg,#ff3fa4,#a855f7)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", boxShadow: checked ? "0 2px 10px rgba(255,63,164,0.4)" : "none" }}>
-        {checked && <span style={{ fontSize: 13, color: "#fff", fontWeight: 900 }}>✓</span>}
+    <div onClick={!skipped ? onToggle : undefined} style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", marginBottom:8, background: checked ? "linear-gradient(135deg,#fff0f8,#f3e8ff)" : skipped ? "#fafafa" : "#fff", border:`1.5px solid ${checked ? "#f9a8d4" : "#fce7f3"}`, borderRadius:14, cursor:skipped ? "default" : "pointer", opacity:skipped ? 0.4 : 1, transition:"all 0.15s", userSelect:"none", boxShadow:checked ? "0 4px 16px rgba(255,63,164,0.13)" : "0 1px 4px rgba(200,100,160,0.06)" }}>
+      <div style={{ width:24, height:24, borderRadius:8, flexShrink:0, border:`2px solid ${checked ? "#ff3fa4" : "#f9a8d4"}`, background:checked ? "linear-gradient(135deg,#ff3fa4,#a855f7)" : "transparent", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s", boxShadow:checked?"0 2px 10px rgba(255,63,164,0.4)":"none" }}>
+        {checked && <span style={{ fontSize:13, color:"#fff", fontWeight:900 }}>✓</span>}
       </div>
-      <span style={{ fontSize: 22, flexShrink: 0 }}>{rule.icon}</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: checked ? pink : skipped ? "#ccc" : textMain, lineHeight: 1.3 }}>
-          {rule.label}{skipped && <span style={{ fontSize: 11, color: "#ccc", marginLeft: 8, fontWeight: 400 }}>Rest day </span>}
+      <span style={{ fontSize:22, flexShrink:0 }}>{rule.icon}</span>
+      <div style={{ flex:1 }}>
+        <div style={{ fontSize:14, fontWeight:600, color:checked?"#ff3fa4":skipped?"#ccc":"#4a1942" }}>
+          {rule.label}{skipped && <span style={{ fontSize:11, color:"#ccc", marginLeft:8, fontWeight:400 }}>Rest day </span>}
         </div>
-        <div style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>{rule.note}</div>
+        <div style={{ fontSize:11, color:"#c9a0c0", marginTop:2 }}>{rule.note}</div>
       </div>
-      {badge && <div style={{ fontSize: 11, fontWeight: 700, color: badgeAlert ? "#e84a4a" : "#22c55e", background: badgeAlert ? "#fff0f0" : "#f0fff8", border: `1px solid ${badgeAlert ? "#fca5a5" : "#86efac"}`, padding: "3px 10px", borderRadius: 20, whiteSpace: "nowrap", flexShrink: 0 }}>{badge}</div>}
     </div>
   );
 }
 
-const navBtnStyle = { background: "#fff0f8", border: "1.5px solid #fce7f3", color: "#ff3fa4", padding: "7px 16px", borderRadius: 20, fontSize: 12, fontFamily: "inherit", cursor: "pointer", letterSpacing: "0.04em", fontWeight: 700, boxShadow: "0 2px 8px rgba(255,63,164,0.12)" };
+// Weekly allowance row — used = fully blocked with lock indicator
+function AllowanceRow({ rule, used, onToggle }) {
+  return (
+    <div onClick={onToggle} style={{ display:"flex", alignItems:"center", gap:14, padding:"16px 16px", marginBottom:8, background: used ? "linear-gradient(135deg,#fff0f8,#f3e8ff)" : "#fff", border:`1.5px solid ${used ? "#f9a8d4" : "#fce7f3"}`, borderRadius:14, cursor:"pointer", transition:"all 0.15s", userSelect:"none", boxShadow:used?"0 4px 16px rgba(255,63,164,0.15)":"0 1px 4px rgba(200,100,160,0.06)" }}>
+      <span style={{ fontSize:24, flexShrink:0 }}>{rule.icon}</span>
+      <div style={{ flex:1 }}>
+        <div style={{ fontSize:14, fontWeight:700, color: used ? "#ff3fa4" : "#4a1942" }}>{rule.label}</div>
+        <div style={{ fontSize:11, color:"#c9a0c0", marginTop:2 }}>{rule.note}</div>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+        <div style={{ width:32, height:32, borderRadius:10, background: used ? "linear-gradient(135deg,#ff3fa4,#a855f7)" : "#fce7f3", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, boxShadow: used ? "0 2px 10px rgba(255,63,164,0.4)" : "none", transition:"all 0.2s" }}>
+          {used ? "✓" : "○"}
+        </div>
+        <span style={{ fontSize:9, fontWeight:700, color: used ? "#ff3fa4" : "#c9a0c0", letterSpacing:"0.05em" }}>
+          {used ? "USED" : "TAP"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+const navBtnStyle = { background:"#fff0f8", border:"1.5px solid #fce7f3", color:"#ff3fa4", padding:"7px 16px", borderRadius:20, fontSize:12, fontFamily:"inherit", cursor:"pointer", letterSpacing:"0.04em", fontWeight:700, boxShadow:"0 2px 8px rgba(255,63,164,0.12)" };
