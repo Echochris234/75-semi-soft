@@ -6,21 +6,21 @@ const LS_KEY = "75ss_v3";
 
 // Daily rules — checked per day
 const DAILY_RULES = [
-  { id: "workout",  label: "Workout",       icon: " ", note: "1x/day (skip Mondays)", skipMonday: true },
-  { id: "vitamins", label: "Daily Vitamins", icon: " ", note: "Every day" },
-  { id: "tea",      label: "1 Tea",          icon: " ", note: "At least 1 cup" },
-  { id: "read",     label: "Read 10 Pages",  icon: " ", note: "10 pages minimum" },
-  { id: "waist",    label: "Waist Train",    icon: " ", note: "5x/week minimum" },
-  { id: "wake",     label: "Up by 12pm",     icon: " ", note: "No sleeping in past noon" },
-  { id: "diet",     label: "Clean Diet",     icon: " ", note: "No refined carbs or processed sugar" },
-  { id: "water",    label: "Drink Water",    icon: " ", note: "80–100 oz daily" },
+  { id: "workout",  label: "Workout",       icon: String.fromCodePoint(0x1F3CB, 0xFE0F), note: "1x/day (skip Mondays)", skipMonday: true },
+  { id: "vitamins", label: "Daily Vitamins", icon: String.fromCodePoint(0x1F48A), note: "Every day" },
+  { id: "tea",      label: "1 Tea",          icon: String.fromCodePoint(0x1F375), note: "At least 1 cup" },
+  { id: "read",     label: "Read 10 Pages",  icon: String.fromCodePoint(0x1F4D6), note: "10 pages minimum" },
+  { id: "waist",    label: "Waist Train",    icon: String.fromCodePoint(0x1FAA2), note: "5x/week minimum" },
+  { id: "wake",     label: "Up by 12pm",     icon: String.fromCodePoint(0x23F0), note: "No sleeping in past noon" },
+  { id: "diet",     label: "Clean Diet",     icon: String.fromCodePoint(0x1F957), note: "No refined carbs or processed sugar" },
+  { id: "water",    label: "Drink Water",    icon: String.fromCodePoint(0x1F4A7), note: "80–100 oz daily" },
 ];
 
 // Weekly allowances — 1 use per week, blocks until next week
 const WEEKLY_RULES = [
-  { id: "sweet",       label: "Sweet Treat",    icon: " ", note: "1 treat allowed this week" },
-  { id: "carb",        label: "Carb of Choice", icon: " ", note: "1 carb allowed this week (bread, rice…)" },
-  { id: "skipworkout", label: "Skip a Workout", icon: " ", note: "1 workout skip allowed this week" },
+  { id: "sweet",       label: "Sweet Treat",    icon: String.fromCodePoint(0x1F370), note: "1 treat allowed this week" },
+  { id: "carb",        label: "Carb of Choice", icon: String.fromCodePoint(0x1F35E), note: "1 carb allowed this week (bread, rice…)" },
+  { id: "skipworkout", label: "Skip a Workout", icon: String.fromCodePoint(0x1F6CB, 0xFE0F), note: "1 workout skip allowed this week" },
 ];
 
 const pink       = "#ff3fa4";
@@ -134,7 +134,7 @@ export default function App() {
         <div style={{ maxWidth: 480, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-              <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "0.07em", color: "#fff", margin: 0, textTransform: "uppercase", textShadow: "0 2px 10px rgba(0,0,0,0.15)" }}> 75 Semi Soft</h1>
+              <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "0.07em", color: "#fff", margin: 0, textTransform: "uppercase", textShadow: "0 2px 10px rgba(0,0,0,0.15)" }}>{String.fromCodePoint(0x2728)} 75 Semi Soft</h1>
               {isActive && <span style={{ fontSize: 12, color: "rgba(255,255,255,0.78)" }}>Day {dayNum} of {TOTAL_DAYS}</span>}
             </div>
             <div style={{ fontSize: 11, fontWeight: 700, color: saveLabelColor }}>{saveLabel}</div>
@@ -146,7 +146,7 @@ export default function App() {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 5 }}>
               <span style={{ fontSize: 11, color: "rgba(255,255,255,0.65)" }}>May 19</span>
-              <span style={{ fontSize: 12, color: "#fff", fontWeight: 700 }}>{pct}% done </span>
+              <span style={{ fontSize: 12, color: "#fff", fontWeight: 700 }}>{pct}% done {String.fromCodePoint(0x1F4AA)}</span>
               <span style={{ fontSize: 11, color: "rgba(255,255,255,0.65)" }}>Aug 2</span>
             </div>
           </div>
@@ -169,7 +169,7 @@ export default function App() {
                 {today.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
               </div>
               {!isActive && <div style={{ fontSize: 14, color: pink, marginTop: 8 }}>
-                {dayNum < 1 ? `Challenge starts May 19 — ${Math.abs(dayNum-1)} days away! ` : "Challenge complete! "}
+                {dayNum < 1 ? `Challenge starts May 19 — ${Math.abs(dayNum-1)} days away! {String.fromCodePoint(0x1F380)}` : "Challenge complete! {String.fromCodePoint(0x1F389)}{String.fromCodePoint(0x1F451)}"}
               </div>}
             </div>
 
@@ -193,7 +193,7 @@ export default function App() {
             {/* Weekly allowances */}
             <SectionLabel>Weekly Allowances — Week {currentWeek}</SectionLabel>
             <div style={{ marginBottom: 8, padding: "10px 14px", background: "#fff0f8", border: `1px solid ${cardBorder}`, borderRadius: 12, fontSize: 12, color: textSub }}>
-               Each allowance resets every new week. Once used, it's locked until then.
+              {String.fromCodePoint(0x1F4A1)} Each allowance resets every new week. Once used, it's locked until then.
             </div>
             {WEEKLY_RULES.map(rule => {
               const used = isWeekUsed(currentWeek, rule.id);
@@ -215,7 +215,7 @@ export default function App() {
                 <div style={{ marginTop: 26, padding: "22px 20px", background: done ? "linear-gradient(135deg,#ff3fa4,#a855f7)" : "linear-gradient(135deg,#fdf4ff,#fff0f8)", borderRadius: 20, textAlign: "center", boxShadow: done ? "0 8px 32px rgba(255,63,164,0.4)" : "0 2px 12px rgba(200,100,160,0.1)", border: done ? "none" : `1px solid ${cardBorder}` }}>
                   <div style={{ fontSize: 38, fontWeight: 700, color: done ? "#fff" : pink }}>{checked}/{total}</div>
                   <div style={{ fontSize: 13, color: done ? "rgba(255,255,255,0.92)" : textSub, marginTop: 4, letterSpacing: "0.05em" }}>
-                    {done ? "You're THAT girl today! " : "daily tasks completed"}
+                    {done ? "You're THAT girl today! {String.fromCodePoint(0x2728)}{String.fromCodePoint(0x1F451)}" : "daily tasks completed"}
                   </div>
                 </div>
               );
@@ -315,7 +315,7 @@ export default function App() {
               ))}
             </div>
 
-            <SectionLabel>The Rules </SectionLabel>
+            <SectionLabel>The Rules {String.fromCodePoint(0x1F4CB)}</SectionLabel>
             {[...DAILY_RULES, ...WEEKLY_RULES].map((rule, i) => (
               <div key={rule.id} style={{ display:"flex", alignItems:"flex-start", gap:12, padding:"12px 16px", marginBottom:8, background:"#fff", border:`1px solid ${cardBorder}`, borderRadius:14, boxShadow:"0 2px 8px rgba(200,100,160,0.06)" }}>
                 <span style={{ fontSize:20, marginTop:1 }}>{rule.icon}</span>
@@ -347,7 +347,7 @@ function CheckRow({ rule, checked, skipped, onToggle }) {
       <span style={{ fontSize:22, flexShrink:0 }}>{rule.icon}</span>
       <div style={{ flex:1 }}>
         <div style={{ fontSize:14, fontWeight:600, color:checked?"#ff3fa4":skipped?"#ccc":"#4a1942" }}>
-          {rule.label}{skipped && <span style={{ fontSize:11, color:"#ccc", marginLeft:8, fontWeight:400 }}>Rest day </span>}
+          {rule.label}{skipped && <span style={{ fontSize:11, color:"#ccc", marginLeft:8, fontWeight:400 }}>Rest day {String.fromCodePoint(0x1F4A4)}</span>}
         </div>
         <div style={{ fontSize:11, color:"#c9a0c0", marginTop:2 }}>{rule.note}</div>
       </div>
